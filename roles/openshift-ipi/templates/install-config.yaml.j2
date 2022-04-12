@@ -1,0 +1,61 @@
+apiVersion: v1
+baseDomain: {{ domain }}
+credentialsMode: Manual
+compute:
+- architecture: amd64
+  hyperthreading: Enabled
+  name: worker
+  platform:
+    aws:
+      rootVolume:
+        iops: 1200
+        size: 300
+        type: io1
+      type: m5.4xlarge
+      zones:
+      - us-east-1a
+      - us-east-1b
+      - us-east-1c
+  replicas: 3
+controlPlane:
+  architecture: amd64
+  hyperthreading: Enabled
+  name: master
+  platform:
+    aws:
+      rootVolume:
+        iops: 2400
+        size: 300
+        type: io1
+      type: ""
+      zones:
+      - us-east-1a
+      - us-east-1b
+      - us-east-1c
+  replicas: 3
+metadata:
+  creationTimestamp: null
+  name: {{ cluster_name }}
+networking:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+  machineNetwork:
+  - cidr: 10.247.84.0/23
+  networkType: OpenShiftSDN
+  serviceNetwork:
+  - 172.30.0.0/16
+platform:
+  aws:
+    region: us-east-1
+    subnets:
+    - subnet-xxxxxxxxxxxxxxxxxx
+    - subnet-xxxxxxxxxxxxxxxxxx
+    - subnet-xxxxxxxxxxxxxxxxxx
+    - subnet-xxxxxxxxxxxxxxxxxx
+    - subnet-xxxxxxxxxxxxxxxxxx
+    - subnet-xxxxxxxxxxxxxxxxxx
+publish: Internal
+pullSecret: SECRET_HERE
+sshKey: |
+  ssh-rsa KEY_HERE

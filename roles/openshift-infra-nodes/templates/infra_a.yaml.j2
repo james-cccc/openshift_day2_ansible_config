@@ -1,0 +1,64 @@
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+  name: {{ clusterInfo.resources[0].status.infrastructureName }}-infra-{{ machineRegion.resources[0].spec.providerSpec.value.placement.region }}a
+  namespace: openshift-machine-api
+  labels:
+    machine.openshift.io/cluster-api-cluster: {{ clusterInfo.resources[0].status.infrastructureName }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-cluster: {{ clusterInfo.resources[0].status.infrastructureName }}
+      machine.openshift.io/cluster-api-machineset: {{ clusterInfo.resources[0].status.infrastructureName }}-infra-{{ machineRegion.resources[0].spec.providerSpec.value.placement.region }}a
+  template:
+    metadata:
+      labels:
+        machine.openshift.io/cluster-api-cluster: {{ clusterInfo.resources[0].status.infrastructureName }}
+        machine.openshift.io/cluster-api-machine-role: infra
+        machine.openshift.io/cluster-api-machine-type: infra
+        machine.openshift.io/cluster-api-machineset: {{ clusterInfo.resources[0].status.infrastructureName }}-infra-{{ machineRegion.resources[0].spec.providerSpec.value.placement.region }}a
+    spec:
+      metadata:
+        labels:
+          node-role.kubernetes.io/infra: ""
+          cluster.ocs.openshift.io/openshift-storage: ""
+      taints:
+      - effect: NoSchedule
+        key: node.ocs.openshift.io/storage
+        value: "true"
+      providerSpec:
+        value:
+          userDataSecret:
+            name: worker-user-data
+          placement:
+            availabilityZone: {{ machineRegion.resources[0].spec.providerSpec.value.placement.region }}a
+            region: {{ machineRegion.resources[0].spec.providerSpec.value.placement.region }}
+          credentialsSecret:
+            name: aws-cloud-credentials
+          instanceType: r5.4xlarge
+          blockDevices:
+            - ebs:
+                encrypted: true
+                iops: 120
+                kmsKey:
+                  arn: ''
+                volumeSize: 120
+                volumeType: gp2
+          securityGroups:
+            - filters:
+                - name: 'tag:Name'
+                  values:
+                    - {{ clusterInfo.resources[0].status.infrastructureName }}-worker-sg
+          kind: AWSMachineProviderConfig
+          tags:
+            - name: kubernetes.io/cluster/{{ clusterInfo.resources[0].status.infrastructureName }}
+              value: owned
+          deviceIndex: 0
+          ami:
+            id: {{ machineSetInfoA.resources[0].spec.template.spec.providerSpec.value.ami.id }}
+          subnet:
+            id: {{ machineSetInfoA.resources[0].spec.template.spec.providerSpec.value.subnet.id }}
+          apiVersion: awsproviderconfig.openshift.io/v1beta1
+          iamInstanceProfile:
+            id: {{ clusterInfo.resources[0].status.infrastructureName }}-worker-profile

@@ -1,0 +1,64 @@
+---
+
+- name: etcd encryption
+  block:
+
+    - name: Ensure etcd is encrypted
+      community.kubernetes.k8s:
+        state: present
+        merge_type:
+          - strategic-merge
+          - merge
+        kind: APIServer
+        name: cluster
+        definition:
+          spec:
+            encryption:
+              type: aescbc
+
+    - name: Wait for OpenShift API server encryption to complete
+      community.kubernetes.k8s_info:
+        api_version: v1
+        kind: OpenShiftAPIServer
+        name: cluster
+      register: OPENSHIFT_ENCRYPTION_STATUS
+      until: "'EncryptionCompleted' in OPENSHIFT_ENCRYPTION_STATUS | json_query('resources[].status.conditions[?type==`Encrypted`].reason | []')"
+      retries: 90
+      delay: 90
+      ignore_errors: true
+
+    - name: Wait for Kubernetes API server encryption to complete
+      community.kubernetes.k8s_info:
+        api_version: v1
+        kind: KubeAPIServer
+        name: cluster
+      register: KUBE_ENCRYPTION_STATUS
+      until: "'EncryptionCompleted' in KUBE_ENCRYPTION_STATUS | json_query('resources[].status.conditions[?type==`Encrypted`].reason | []')"
+      retries: 90
+      delay: 90
+      ignore_errors: true
+
+- name: Get encryption status
+  block:
+
+    - name: Retrieve OpenShift API server encryption status
+      community.kubernetes.k8s_info:
+        api_version: v1
+        kind: OpenShiftAPIServer
+        name: cluster
+      register: OPENSHIFT_ENCRYPTION_STATUS
+
+    - name: Retrieve Kubernetes API server encryption status
+      community.kubernetes.k8s_info:
+        api_version: v1
+        kind: KubeAPIServer
+        name: cluster
+      register: KUBE_ENCRYPTION_STATUS
+
+    - name: Display OpenShift API server encryption status
+      debug:
+        msg: "{{ OPENSHIFT_ENCRYPTION_STATUS | json_query('resources[].status.conditions[?type==`Encrypted`].reason ') }}'"
+
+    - name: Display Kubernetes API server encryption status
+      debug:
+        msg: "{{ KUBE_ENCRYPTION_STATUS | json_query('resources[].status.conditions[?type==`Encrypted`].reason ') }}'"

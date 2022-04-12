@@ -1,0 +1,324 @@
+---
+
+- name: Ensure Group Sync Operator is available
+  block:
+
+    - name: Ensure namespace exists for Group Sync
+      community.kubernetes.k8s:
+        state: present
+        api_version: v1
+        kind: Namespace
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          spec:
+            finalizers:
+            - kubernetes
+          metadata:
+            name: group-sync-operator
+
+    - name: Ensure Operator Group exists for Group Sync
+      community.kubernetes.k8s:
+        state: present
+        api_version: operators.coreos.com/v1
+        kind: OperatorGroup
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          metadata:
+            name: group-sync-operator-dbqlq
+            namespace: group-sync-operator
+          spec:
+            targetNamespaces:
+            - group-sync-operator
+
+    - name: Ensure Subscription exists for Group Sync
+      community.kubernetes.k8s:
+        state: present
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: group-sync-operator
+        namespace: group-sync-operator
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          spec:
+            channel: alpha
+            installPlanApproval: Automatic
+            name: group-sync-operator
+            source: community-operators
+            sourceNamespace: openshift-marketplace
+
+    - name: Ensure Azure Group Sync secret exists
+      community.kubernetes.k8s:
+        state: present
+        api_version: v1
+        kind: Secret
+        namespace: group-sync-operator
+        name: azure-group-sync
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          data:
+            AZURE_CLIENT_ID: "{{ openid_client_id |  b64encode }}"
+            AZURE_CLIENT_SECRET: "{{ openid_secret | b64encode }}"
+            AZURE_TENANT_ID: "{{ openid_tenant_id |  b64encode }}"
+          type: Opaque
+
+    - name: Ensure Azure Group Sync configuration exists
+      community.kubernetes.k8s:
+        state: present
+        api_version: redhatcop.redhat.io/v1alpha1
+        kind: GroupSync
+        namespace: group-sync-operator
+        name: azure-groupsync
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          spec:
+            providers:
+            - name: azure
+              azure:
+                credentialsSecret:
+                  name: azure-group-sync
+                  namespace: group-sync-operator
+                groups:
+                  - OpenShiftAdmin
+                  - OpenShiftReader
+                  - OpenShiftDeveloper
+
+- name: Authentication via HTPasswd and AzureAD
+  block:
+
+    - name: Ensure OpenID secret exists
+      community.kubernetes.k8s:
+        state: present
+        api_version: v1
+        kind: Secret
+        namespace: openshift-config
+        name: idp-secret
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          type: Opaque
+          data:
+            clientSecret: "{{ openid_secret | b64encode }}"
+
+    - name: Build HTPASSWD file
+      htpasswd:
+        state: present
+        path: "{{ role_path }}/files/htpassword"
+        name: "{{ item.value.username }}"
+        password: "{{ item.value.password }}"
+      with_dict: "{{ groups_and_users }}"
+
+    - name: Ensure htpassword secret exists
+      community.kubernetes.k8s:
+        state: present
+        api_version: v1
+        kind: Secret
+        namespace: openshift-config
+        name: htpasswd
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          type: Opaque
+          data:
+            htpasswd: "{{ lookup('file', role_path + '/files/htpassword') | b64encode }}"
+
+    - name: Ensure htpassword and OpenID oauth configuration exists
+      community.kubernetes.k8s:
+        state: present
+        api_version: config.openshift.io/v1
+        kind: OAuth
+        name: cluster
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          spec:
+            identityProviders:
+              - htpasswd:
+                  fileData:
+                    name: htpasswd
+                mappingMethod: claim
+                name: local user
+                type: HTPasswd
+              - name: oidcidp
+                mappingMethod: claim
+                type: OpenID
+                openID:
+                  clientID: "{{ openid_client_id }}"
+                  clientSecret:
+                    name: idp-secret
+                  extraScopes:
+                  - email
+                  - profile
+                  extraAuthorizeParameters:
+                    include_granted_scopes: "true"
+                  claims:
+                    preferredUsername:
+                    - upn
+                    name:
+                    - name
+                    email:
+                    - email
+                  issuer: "{{ openid_issuer }}"
+
+    - name: Remove file from tmp directory
+      file:
+        path: "{{ role_path }}/files/htpassword"
+        state: absent
+
+- name: Local RBAC
+  block:
+
+    - name: Create User Group
+      community.kubernetes.k8s:
+        state: present
+        api_version: user.openshift.io/v1
+        kind: Group
+        name: '{{ item.value.group_name }}'
+        merge_type:
+          - strategic-merge
+          - merge
+      with_dict: '{{ groups_and_users }}'
+
+    - name: Bind cluster-admin role to the Openshift Admins group
+      community.kubernetes.k8s:
+        state: present
+        api_version: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        name: cluster-admin-cluster-admin-crb
+        namespace: openshift-config
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          metadata:
+            annotations:
+              rbac.authorization.kubernetes.io/autoupdate: "true"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: '{{ groups_and_users.cluster_admin.group_name }}'
+
+    - name: Bind cluster-reader role to the Cluster Reader
+      community.kubernetes.k8s:
+        state: present
+        api_version: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        name: cluster-admin-cluster-reader-crb
+        namespace: openshift-config
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          metadata:
+            annotations:
+              rbac.authorization.kubernetes.io/autoupdate: "true"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-reader
+          subjects:
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: '{{ groups_and_users.cluster_reader.group_name }}'
+
+    - name: Bind cluster-reader role to the CP4I Group
+      community.kubernetes.k8s:
+        state: present
+        api_version: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        name: cp4i-cluster-reader-crb
+        namespace: openshift-config
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          metadata:
+            annotations:
+              rbac.authorization.kubernetes.io/autoupdate: "true"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-reader
+          subjects:
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: '{{ groups_and_users.cp4iuser.group_name }}'
+
+    - name: Bind Users to Groups
+      community.kubernetes.k8s:
+        state: present
+        api_version: user.openshift.io/v1
+        name: "{{ item.value.group_name }}"
+        kind: Group
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          users:
+          - "{{ item.value.username }}"
+      with_dict: '{{ groups_and_users }}'
+
+- name: Azure RBAC
+  block:
+
+    - name: Bind cluster-admin role to the Azure OpenShiftAdmin group
+      community.kubernetes.k8s:
+        state: present
+        api_version: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        name: cluster-admin-cluster-admin-crb-azure
+        namespace: openshift-config
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          metadata:
+            annotations:
+              rbac.authorization.kubernetes.io/autoupdate: "true"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: OpenShiftAdmin
+
+    - name: Bind cluster-reader role to the Azure OpenShiftReader group
+      community.kubernetes.k8s:
+        state: present
+        api_version: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        name: cluster-admin-cluster-reader-crb-azure
+        namespace: openshift-config
+        merge_type:
+          - strategic-merge
+          - merge
+        definition:
+          metadata:
+            annotations:
+              rbac.authorization.kubernetes.io/autoupdate: "true"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-reader
+          subjects:
+          - apiGroup: rbac.authorization.k8s.io
+            kind: Group
+            name: OpenShiftReader

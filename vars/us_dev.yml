@@ -1,0 +1,31 @@
+---
+
+# Cluster Details:
+domain: one.test.org
+cluster_name: cp4i-usdev
+
+# Bastion Resources:
+installation_directory: /root/openshift-dev/us
+
+# OpenShift Logging
+logging_channel: "4.6"
+elasticsearch_instance: https://elksearch-usdev.one.test.org:443
+
+# OpenShift Container Storage:
+ocs_channel: stable-4.6
+
+# OpenShift Console:
+banner_colour: '#66b266'
+text_colour: '#ffffff'
+
+# IBM - CP4I:
+continue_on_error: False
+cp4i_namespaces:
+  - cp-navigator
+  - cp-opdashboard
+  - cp-appconnect
+  - cp-ibmmq
+cp4i_channel: "v1.3"
+platnav_replicas: 2
+platnav_storage_class: ocs-storagecluster-cephfs
+platnav_version: 2021.1.1

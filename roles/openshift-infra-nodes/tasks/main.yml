@@ -1,0 +1,59 @@
+---
+
+- name: Get cluster info
+  community.kubernetes.k8s_info:
+    api_version: config.openshift.io/v1
+    name: cluster
+    kind: Infrastructure
+  register: clusterInfo
+
+- name: Get cluster version
+  community.kubernetes.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+  register: clusterVersion
+
+- name: Get Machine Region Info
+  community.kubernetes.k8s_info:
+    api_version: machine.openshift.io/v1beta1
+    kind: Machine
+    namespace: openshift-machine-api
+  register: machineRegion
+
+- name: debug
+  debug:
+    msg: "{{ machineRegion.resources[0].spec.providerSpec.value.placement.availabilityZone }}"
+
+- name: Get Worker MachineSetInfo fot AZ a
+  community.kubernetes.k8s_info:
+    api_version: machine.openshift.io/v1beta1
+    name: "{{ clusterInfo.resources[0].status.infrastructureName }}-worker-{{ machineRegion.resources[0].spec.providerSpec.value.placement.region }}a"
+    kind: MachineSet
+    namespace: openshift-machine-api
+  register: machineSetInfoA
+
+- name: Get Worker MachineSetInfo fot AZ b
+  community.kubernetes.k8s_info:
+    api_version: machine.openshift.io/v1beta1
+    name: "{{ clusterInfo.resources[0].status.infrastructureName }}-worker-{{ machineRegion.resources[0].spec.providerSpec.value.placement.region }}b"
+    kind: MachineSet
+    namespace: openshift-machine-api
+  register: machineSetInfoB
+
+- name: Get Worker MachineSetInfo fot AZ c
+  community.kubernetes.k8s_info:
+    api_version: machine.openshift.io/v1beta1
+    name: "{{ clusterInfo.resources[0].status.infrastructureName }}-worker-{{ machineRegion.resources[0].spec.providerSpec.value.placement.region }}c"
+    kind: MachineSet
+    namespace: openshift-machine-api
+  register: machineSetInfoC
+
+- name: Create manchinesets
+  community.kubernetes.k8s:
+    state: present
+    definition: "{{ lookup('template', 'templates/{{ item }}.yaml.j2') }}"
+  loop:
+    - infra_a
+    - infra_b
+    - infra_c

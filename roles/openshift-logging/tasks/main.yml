@@ -1,0 +1,321 @@
+---
+- name: Set Namespace for cluster logging
+  community.kubernetes.k8s:
+    state: present
+    api_version: v1
+    kind: Namespace
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      metadata:
+        name: openshift-logging
+        annotations:
+          openshift.io/node-selector: ""
+        labels:
+          openshift.io/cluster-monitoring: "true"
+
+- name: Set Namespace for elasticsearch
+  community.kubernetes.k8s:
+    state: present
+    api_version: v1
+    kind: Namespace
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      metadata:
+        name: openshift-operators-redhat
+        annotations:
+          openshift.io/node-selector: ""
+        labels:
+          openshift.io/cluster-monitoring: "true"
+
+- name: Set Operator Group for elasticsearch
+  community.kubernetes.k8s:
+    state: present
+    api_version: operators.coreos.com/v1
+    kind: OperatorGroup
+    namespace: openshift-operators-redhat
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      metadata:
+        name: openshift-operators-redhat
+      spec: {}
+
+- name:  Ensure subscription existence for elasticsearch
+  community.kubernetes.k8s:
+    state: present
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: elasticsearch-operator
+    namespace: openshift-operators-redhat
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      spec:
+        channel: "{{ logging_channel }}"
+        installPlanApproval: Automatic
+        name: elasticsearch-operator
+        source: redhat-operators
+        sourceNamespace: openshift-marketplace
+
+- name: Set Operator Group for cluster logging
+  community.kubernetes.k8s:
+    state: present
+    api_version: operators.coreos.com/v1
+    kind: OperatorGroup
+    namespace: openshift-logging
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      metadata:
+        name: openshift-logging
+      spec:
+        targetNamespaces:
+        - openshift-logging
+
+- name: Verify Operatorgroup is created
+  community.kubernetes.k8s_info:
+    kind: OperatorGroup
+    namespace: openshift-logging
+    name: openshift-logging
+  register: openshift_logging_reg
+  until: "openshift_logging_reg.failed == false"
+  retries: 30
+  delay: 10
+
+- name: Deploy cluster logging operator
+  community.kubernetes.k8s:
+    state: present
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: cluster-logging
+    namespace: openshift-logging
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      spec:
+        channel: "{{ logging_channel }}"
+        installPlanApproval: Automatic
+        name: cluster-logging
+        source: redhat-operators
+        sourceNamespace: openshift-marketplace
+
+# These 4 below tasks will verify if Elasticseach is installed
+- name: Verify Elasticseach subscription existence
+  community.kubernetes.k8s_info:
+    kind: Subscription
+    name: elasticsearch-operator
+    namespace: openshift-operators-redhat
+  register: ES_SUB_EXISTENCE
+  until: "ES_SUB_EXISTENCE.failed == false"
+  retries: 30
+  delay: 10
+
+- name: Get Elasticseach subscription
+  community.kubernetes.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: elasticsearch-operator
+    namespace: openshift-operators-redhat
+  register: ES_SUB_STATUS
+  until: ES_SUB_STATUS.resources[0].status.installedCSV is defined
+  retries: 30
+  delay: 10
+
+- name: Display ES CSV version
+  debug:
+    msg: "{{ ES_SUB_STATUS.resources[0].status.installedCSV }}"
+
+- name: Wait for Elasticseach Operator to Install
+  community.kubernetes.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: openshift-operators-redhat
+    name: "{{ ES_SUB_STATUS.resources[0].status.installedCSV }}"
+  register: ES_STATUS
+  until: "'InstallSucceeded' in ES_STATUS | json_query('resources[].status.reason | []')"
+  retries: 90
+  delay: 2
+  ignore_errors: true
+
+# These 4 below tasks will verify if ClusterLogging is installed
+- name: Verify cluster logging operator is created
+  community.kubernetes.k8s_info:
+    kind: Subscription
+    namespace: openshift-logging
+    name: cluster-logging
+  register: CLO_SUB_EXISTENCE
+  until: "CLO_SUB_EXISTENCE.failed == false"
+  retries: 30
+  delay: 10
+
+- name: Get CLO Sub
+  community.kubernetes.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: cluster-logging
+    namespace: openshift-logging
+  register: CLO_SUB_STATUS
+  until: CLO_SUB_STATUS.resources[0].status.installedCSV is defined
+  retries: 30
+  delay: 10
+
+- name: Display CSV version
+  debug:
+    msg: "{{ CLO_SUB_STATUS.resources[0].status.installedCSV }}"
+
+- name: Wait for CLO Operator to Install
+  community.kubernetes.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: openshift-logging
+    name: "{{ CLO_SUB_STATUS.resources[0].status.installedCSV }}"
+  register: CLO_STATUS
+  until: "'InstallSucceeded' in CLO_STATUS | json_query('resources[].status.reason | []')"
+  retries: 20
+  delay: 10
+  ignore_errors: true
+
+# Crete cluster logging instance
+- name: Deploy ClusterLogging
+  community.kubernetes.k8s:
+    state: present
+    api_version: logging.openshift.io/v1
+    kind: ClusterLogging
+    name: "instance"
+    namespace: "openshift-logging"
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      spec:
+        managementState: "Managed"
+        logStore:
+          retentionPolicy:
+            application:
+              maxAge: 1d
+            infra:
+              maxAge: 7d
+            audit:
+              maxAge: 7d
+          type: "elasticsearch"
+          elasticsearch:
+            nodeCount: 3
+            storage:
+              storageClassName: "gp2"
+              size: 200G
+            resources:
+              requests:
+                memory: "8Gi"
+            proxy:
+              resources:
+                limits:
+                  memory: 256Mi
+                requests:
+                   memory: 256Mi
+            redundancyPolicy: "SingleRedundancy"
+            nodeSelector:
+              node-role.kubernetes.io/infra: ""
+            tolerations:
+            - key: "node.ocs.openshift.io/storage"
+              value: "true"
+              effect: NoSchedule
+        visualization:
+          type: "kibana"
+          kibana:
+            replicas: 1
+            nodeSelector:
+              node-role.kubernetes.io/infra: ""
+            tolerations:
+            - key: "node.ocs.openshift.io/storage"
+              value: "true"
+              effect: NoSchedule
+        curation:
+          type: "curator"
+          curator:
+            schedule: "30 1 * * *"
+            nodeSelector:
+              node-role.kubernetes.io/infra: ""
+            tolerations:
+            - key: "node.ocs.openshift.io/storage"
+              value: "true"
+              effect: NoSchedule
+        collection:
+          logs:
+            type: "fluentd"
+            fluentd:
+              tolerations:
+              - key: "node.ocs.openshift.io/storage"
+                value: "true"
+                effect: NoSchedule
+
+# Log Forwarding
+# This is en example log forwarder, look at the examples on the documentation and teh below code can form as a basis for your config.
+# Ref: https://docs.openshift.com/container-platform/4.6/logging/cluster-logging-external.html
+
+- name: Create a Secret for ES
+  community.kubernetes.k8s:
+    state: present
+    kind: Secret
+    name: es-secret
+    namespace: openshift-logging
+    definition:
+      data:
+        tls.crt: "{{ lookup('file', '{{ ingress_tls_crt }}', rstrip=False) | b64encode }}"
+        tls.key: "{{ lookup('file', '{{ ingress_tls_key }}', rstrip=False) | b64encode }}"
+        ca-bundle.crt: "{{ lookup('file', '{{ root_ca }}', rstrip=False) | b64encode }}"
+      type: kubernetes.io/tls
+
+- name: Deploy Log Forwarder
+  community.kubernetes.k8s:
+    state: present
+    api_version: logging.openshift.io/v1
+    kind: ClusterLogForwarder
+    name: "instance"
+    namespace: "openshift-logging"
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      spec:
+        outputs:
+         - name: awselasticsearch
+           type: "elasticsearch"
+           url: "{{elasticsearch_instance}}"
+           secret:
+              name: es-secret
+        pipelines:
+         - name: application-logs
+           inputRefs:
+           - application
+           outputRefs:
+           - awselasticsearch
+           - default
+           labels:
+             logs: application
+             clusterId: "{{ cluster_name }}"
+         - name: infrastructure-audit-logs
+           inputRefs:
+           - infrastructure
+           outputRefs:
+           - awselasticsearch
+           - default
+           labels:
+             logs: audit-infra
+             clusterId: "{{ cluster_name }}"
+         - name: audit-logs
+           inputRefs:
+           - audit
+           outputRefs:
+           - awselasticsearch
+           - default
+           labels:
+             logs: audit
+             clusterId: "{{ cluster_name }}"

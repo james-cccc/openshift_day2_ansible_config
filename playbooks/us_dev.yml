@@ -1,0 +1,28 @@
+---
+- name: OpenShift configuration for the US DEV cluster
+  hosts: localhost
+  vars_files:
+    - ../vars/us_dev.yml
+    - ../vars/vault_us_dev.yml
+  module_defaults:
+    community.kubernetes.k8s_info:
+      validate_certs: false
+      kubeconfig: "{{ installation_directory }}/auth/kubeconfig"
+      host: "https://api.{{ cluster_name }}.{{ domain }}:6443"
+    community.kubernetes.k8s:
+      validate_certs: false
+      kubeconfig: "{{ installation_directory }}/auth/kubeconfig"
+      host: "https://api.{{ cluster_name }}.{{ domain }}:6443"
+  roles:
+    - openshift-infra-nodes
+    - openshift-auth
+    - openshift-storage
+    - openshift-logging
+    - openshift-monitoring
+    - openshift-image-registry
+    - openshift-ingress
+    - openshift-console
+    - openshift-certificates
+    - openshift-etcd
+    - openshift-etcd-backups
+    - ibm-cp4i

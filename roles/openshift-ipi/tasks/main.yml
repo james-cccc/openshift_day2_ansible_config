@@ -1,0 +1,37 @@
+---
+# tasks file for createigns
+
+- name: Ensure oc binary is present
+  command: "oc version --client"
+  register: oc_existence_result
+
+- name: Print oc cli version
+  debug:
+    var: oc_existence_result.stdout
+
+- name: Ensure openshift-install binary is present
+  command: "openshift-install version"
+  register: openshift_install_existence_result
+
+- name: Print openshift-install cli version
+  debug:
+    var: openshift_install_existence_result.stdout
+
+- name: Check existence oc cluster config directory
+  stat:
+    path: "{{ installation_directory }}"
+  register: installation_directory_existence
+
+- name: Fail if previous cluster config directory exists
+  fail:
+    msg: "The directory {{ installation_directory }} already exists. Please remove this directory before starting a new cluster build."
+  when: installation_directory_existence.stat.exists == True
+
+- name: Ensure a installation directory exists
+  file:
+    path: "{{ installation_directory }}"
+    state: directory
+    mode: '0775'
+
+- name: Generate the ignition manifests
+  command: "openshift-install create manifests --dir={{ installation_directory }}"

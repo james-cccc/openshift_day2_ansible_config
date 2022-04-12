@@ -1,0 +1,43 @@
+---
+
+# OpenShift Container Storage:
+nooba_aws_access_key_id: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+nooba_aaws_secret_access_key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Oauth - HTPasswd users and groups:
+groups_and_users:
+  cluster_admin:
+    group_name: 'LocalOpenShiftAdmin'
+    username: cluster_admin_user
+    password: redhat2
+  cluster_reader:
+    group_name: 'LocalOpenShiftReader'
+    username: cluster_reader_user
+    password: redhat1
+  developer:
+    group_name: 'LocalOpenShiftDeveloper'
+    username: developer_user
+    password: redhat1
+  tester:
+    group_name: 'LocalOpenShiftTester'
+    username: tester_user
+    password: redhat1
+  cp4iuser:
+    group_name: 'LocalOpenShiftCp4i'
+    username: cp4i_user
+    password: redhat1
+
+# IBM - CP4I:
+ibm_docker_config_json: xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+platnav_licence: xxxxxxxxx
+
+# Custom Certificates:
+root_ca: "/dir/file.pem"
+ingress_tls_crt: "/dir/file.pem"
+ingress_tls_key: "/dir/file.pem"
+
+# OpenID OAuth
+openid_client_id: xxxxxxxxxxxxxxxxxxxxxx
+openid_secret: xxxxxxxxxxxxxxxxxxxxxx
+openid_issuer: https://login.microsoftonline.com/xxxxxxxxxxxxxxxxxxxxxxx
+openid_tenant_id: xxxxxxxxxxxxxxxxxxxxxxxxxx

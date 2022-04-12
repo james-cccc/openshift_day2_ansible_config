@@ -1,0 +1,20 @@
+---
+# TO DO - Esure this patches and doesn't remove s3 config
+- name: Move Registry to Infra nodes
+  community.kubernetes.k8s:
+    api_version: imageregistry.operator.openshift.io/v1
+    state: present
+    kind: Config
+    name: cluster
+    namespace: openshift-ingress-operator
+    merge_type:
+      - strategic-merge
+      - merge
+    definition:
+      spec:
+        nodeSelector:
+          node-role.kubernetes.io/infra: ""
+        tolerations:
+        - key: "node.ocs.openshift.io/storage"
+          value: "true"
+          effect: NoSchedule
